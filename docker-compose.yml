@@ -1,0 +1,21 @@
+version: '2.3'
+
+services:
+  dev:
+    container_name: previs
+    runtime: nvidia
+    restart: always
+    ipc: host
+    shm_size: "8g"
+    build:
+      context: ./
+      dockerfile: docker/dockerfile
+    env_file:
+      - docker/env.env
+    ports:
+      - "10000:8000"
+      - "10022:22"
+    stdin_open: true
+    tty: true
+    environment:
+      TZ: Asia/Seoul

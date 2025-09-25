@@ -1,0 +1,16 @@
+FROM jinhasong/previs:1.0
+
+ENV TZ Asia/Seoul
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get -y install \
+    libgl1 \
+    tzdata git wget ssh vim
+
+RUN ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime
+RUN echo "root:password" | chpasswd
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes #prohibit-password/' /etc/ssh/sshd_config
+
+WORKDIR /root
