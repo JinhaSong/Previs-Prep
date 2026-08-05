@@ -2,7 +2,7 @@ version: '2.3'
 
 services:
   dev:
-    container_name: previs
+    container_name: previs-prep
     runtime: nvidia
     restart: always
     ipc: host
