@@ -14,3 +14,6 @@ RUN echo "root:password" | chpasswd
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes #prohibit-password/' /etc/ssh/sshd_config
 
 WORKDIR /root
+# pc10k 의존성
+COPY docker/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
