@@ -68,7 +68,7 @@ def load_views(obj_dir, num_views=8, size=448):
     idx = np.linspace(0, len(pngs) - 1, min(num_views, len(pngs))).astype(int)
     out = []
     for i in idx:
-        im = Image.open(pngs[i], encoding="utf-8").convert("RGBA")
+        im = Image.open(pngs[i]).convert("RGBA")
         bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
         out.append(Image.alpha_composite(bg, im).convert("RGB").resize((size, size)))
     return out
@@ -198,7 +198,7 @@ def main():
         print(f"[resume] 기존 {len(done):,}개 skip", flush=True)
 
     cap = QwenCaptioner(args.model)
-    n = 0
+    n = nfail = 0
     with open(args.out, "a", encoding="utf-8") as f:
         for uid, cat in picks:
             if uid in done:
@@ -217,9 +217,14 @@ def main():
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             f.flush()
             n += 1
+            nfail += "caption" not in rec
+            # 초반이 전부 실패면 환경·코드 문제다. 조용히 실패 레코드만 쌓지 말고 멈춘다.
+            # (실측: Image.open 인자 오류로 6,113건이 전량 실패한 채 정상 종료했다)
+            if n == 20 and nfail == 20:
+                raise SystemExit(f"[중단] 초기 20건이 모두 실패: {rec.get('fail')}")
             if n % 50 == 0:
                 print(f"  [{n}/{len(picks)}]", flush=True)
-    print(f"✓ 저장: {args.out}", flush=True)
+    print(f"✓ 저장: {args.out}  (성공 {n - nfail:,} / 실패 {nfail:,})", flush=True)
 
 
 if __name__ == "__main__":

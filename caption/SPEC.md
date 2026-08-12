@@ -218,10 +218,22 @@ python caption/qwen_caption.py \
 python caption/qwen_translate_ko.py \
   --in "caps_s*.jsonl" --out caps_ko.jsonl --batch 16
 
-# 3) 한/영 정합성 검수 → 결함 건 추출
+# 3) 결함 건만 재번역해 보정 (선택, 게이트 강화 후 재적용 시)
+python caption/qwen_translate_ko.py \
+  --repair "caps_ko*.jsonl" --in x --out caps_ko_fixed.jsonl
+
+# 4) 샤드 병합 → 인도용 단일 데이터셋 (중복·실패 제거, 커버리지 보고)
+python caption/merge_captions.py \
+  --in "caps_ko_fixed*.jsonl" --out dataset.jsonl \
+  --require_ko --target 20430 --min_per_class 20
+
+# 5) 한/영 정합성 검수 → 결함 건 추출 (병합 결과에 대해 반드시 재실행)
 python caption/qc_bilingual.py \
-  --in caps_ko.jsonl --out defects.jsonl
+  --in dataset.jsonl --out defects.jsonl
 ```
+
+> 순서 주의: **병합은 검수가 아니다.** 샤드별로 검수를 통과했더라도 병합 과정에서
+> 중복 해소·필드 정리가 일어나므로, 인도 판정은 항상 병합된 최종 파일 기준으로 한다.
 
 ## 9. 대규모 처리 시 권고 (10만~100만 객체)
 
