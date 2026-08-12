@@ -13,6 +13,12 @@ RUN ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime
 RUN echo "root:password" | chpasswd
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes #prohibit-password/' /etc/ssh/sshd_config
 
+# 베이스 이미지는 conda 환경 previs(Python 3.11) 에 의존성이 들어있으나
+# conda 가 PATH 에 없어 `pip` 이 존재하지 않는다(빌드 시 exit 127).
+# 환경 경로를 PATH 앞에 두어 컨테이너 진입 시 python/pip 이 바로 잡히게 한다.
+ENV CONDA_PREFIX=/root/miniconda3/envs/previs
+ENV PATH=/root/miniconda3/envs/previs/bin:$PATH
+
 WORKDIR /root
 # pc10k 의존성
 COPY docker/requirements.txt /tmp/requirements.txt
@@ -27,6 +33,14 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/${TO
 COPY docker/requirements-caption.txt /tmp/requirements-caption.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-caption.txt
 
+# 빌드 산출물 자체 검증 — 여기서 실패하면 이미지가 만들어지지 않는다.
+# (의존성이 깨진 이미지가 인도되는 것을 막는다)
+COPY docker/verify_image.py /tmp/verify_image.py
+RUN python /tmp/verify_image.py
+
 # 모델 가중치는 이미지에 굽지 않는다(용량·라이선스 갱신). 실행 시 캐시 볼륨으로 마운트.
 ENV HF_HOME=/root/.cache/huggingface
 VOLUME ["/root/.cache/huggingface"]
+
+WORKDIR /workspace
+CMD ["/bin/bash"]
