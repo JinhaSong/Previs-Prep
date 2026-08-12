@@ -21,6 +21,10 @@ def check(name, fn):
 
 
 print(f"[python] {sys.version.split()[0]}  ({sys.executable})")
+if any(x in sys.version.lower() for x in ("rc", "alpha", "beta")):
+    FAIL.append(f"python {sys.version.split()[0]} 는 정식 릴리스가 아님 "
+                "(Ubuntu 22.04 기본 python3.11 은 3.11.0rc1 — deadsnakes PPA 사용)")
+    print(f"  ✗ 정식 릴리스 아님")
 
 print("\n[pc10k 의존성]")
 check("numpy", lambda: __import__("numpy").__version__)

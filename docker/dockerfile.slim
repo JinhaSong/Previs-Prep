@@ -17,16 +17,20 @@ ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 ARG DEBIAN_FRONTEND=noninteractive
 
+# Ubuntu 22.04 기본 저장소의 python3.11 은 3.11.0rc1(릴리스 후보)이다.
+# 검증은 3.11.9 에서 수행했으므로 deadsnakes PPA 로 정식 릴리스를 받는다.
 # libgl1/libglib2.0-0/libgomp1 : open3d 런타임 의존 (libgomp = OpenMP)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3.11 python3.11-venv python3-pip \
+        software-properties-common ca-certificates gnupg \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-venv python3.11-distutils \
         libgl1 libglib2.0-0 libgomp1 \
-        git wget ca-certificates tzdata \
+        git wget curl tzdata \
     && ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime \
     && ln -sf /usr/bin/python3.11 /usr/local/bin/python \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python \
     && rm -rf /var/lib/apt/lists/*
-
-RUN python -m pip install --no-cache-dir --upgrade pip
 
 # torch 를 먼저 넣어 레이어 캐시를 살린다(가장 크고 잘 안 바뀜).
 # --index-url 만으로는 기존 torch 가 있을 때 무시되므로 슬림 베이스에서도
