@@ -1,0 +1,55 @@
+# 슬림 이미지 — 인도·배포용
+#
+# 기본 dockerfile 은 사내 개발 베이스(jinhasong/previs:1.0, 51.5GB)를 상속해
+# 최종 59.1GB 가 된다. 이 파이프라인이 실제로 쓰는 것은 python + 아래 의존성뿐이므로,
+# 배포용으로는 CUDA 런타임 베이스에서 새로 쌓아 크기를 줄인다.
+#
+# 빌드:
+#   docker build -f docker/dockerfile.slim -t previs-prep:slim .
+# 실행:
+#   docker run --rm -it --gpus all -v /data:/data previs-prep:slim
+#
+# 주의: CUDA 12.8 런타임 = RTX 50xx(sm_120) 지원. 하위 버전으로 내리지 말 것.
+FROM nvidia/cuda:12.8.1-runtime-ubuntu22.04
+
+ENV TZ=Asia/Seoul
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+ARG DEBIAN_FRONTEND=noninteractive
+
+# libgl1/libglib2.0-0 : open3d 런타임 의존
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-venv python3-pip \
+        libgl1 libglib2.0-0 \
+        git wget ca-certificates tzdata \
+    && ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime \
+    && ln -sf /usr/bin/python3.11 /usr/local/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir --upgrade pip
+
+# torch 를 먼저 넣어 레이어 캐시를 살린다(가장 크고 잘 안 바뀜).
+# --index-url 만으로는 기존 torch 가 있을 때 무시되므로 슬림 베이스에서도
+# 버전을 명시적으로 고정한다.
+ARG TORCH_CUDA=cu128
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/${TORCH_CUDA} \
+        torch torchvision
+
+COPY docker/requirements.txt /tmp/requirements.txt
+COPY docker/requirements-caption.txt /tmp/requirements-caption.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt -r /tmp/requirements-caption.txt
+
+# 빌드 산출물 자체 검증 — 실패 시 이미지가 만들어지지 않는다
+COPY docker/verify_image.py /tmp/verify_image.py
+RUN python /tmp/verify_image.py
+
+# 모델 가중치는 이미지에 굽지 않는다. 실행 시 캐시 볼륨으로 마운트.
+ENV HF_HOME=/root/.cache/huggingface
+VOLUME ["/root/.cache/huggingface"]
+
+COPY pc10k /opt/previs-prep/pc10k
+COPY caption /opt/previs-prep/caption
+ENV PYTHONPATH=/opt/previs-prep
+
+WORKDIR /workspace
+CMD ["/bin/bash"]
