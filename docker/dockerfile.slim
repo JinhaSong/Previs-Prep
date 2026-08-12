@@ -24,13 +24,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         software-properties-common ca-certificates gnupg \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y --no-install-recommends \
-        python3.11 python3.11-venv python3.11-distutils \
+        python3.11 python3.11-venv python3.11-dev \
         libgl1 libglib2.0-0 libgomp1 \
         git wget curl tzdata \
     && ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime \
-    && ln -sf /usr/bin/python3.11 /usr/local/bin/python \
-    && curl -sS https://bootstrap.pypa.io/get-pip.py | python \
     && rm -rf /var/lib/apt/lists/*
+
+# 시스템 파이썬에 직접 설치하면 apt 로 들어온 distutils 패키지(blinker 등)를
+# pip 이 제거할 수 없어 실패한다("Cannot uninstall blinker 1.4", 실측).
+# venv 로 격리해 apt 패키지와 섞이지 않게 한다.
+RUN python3.11 -m venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # torch 를 먼저 넣어 레이어 캐시를 살린다(가장 크고 잘 안 바뀜).
 # --index-url 만으로는 기존 torch 가 있을 때 무시되므로 슬림 베이스에서도
