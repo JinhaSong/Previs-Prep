@@ -1,0 +1,14 @@
+# caption/ 영어 캡션 생성 + 한국어 번역 + 한/영 정합성 검수 (GPU 필요)
+#
+# torch 는 GPU 아키텍처에 맞는 빌드를 별도 설치할 것 (dockerfile 참고).
+#   - RTX 40xx (sm_89) 이하 : cu124 이상 아무 빌드나 가능
+#   - RTX 50xx (sm_120)     : **cu128 이상 필수** — cu124 는 sm_120 커널이 없어
+#                              "CUDA error: no kernel image" 로 전량 무효 생성됨
+transformers>=4.51        # Qwen2.5-VL / Qwen3 지원 최소 버전
+accelerate>=0.30          # device_map="auto"
+qwen-vl-utils             # Qwen2.5-VL 비전 전처리
+sentencepiece
+protobuf
+pillow
+numpy<2
+tqdm

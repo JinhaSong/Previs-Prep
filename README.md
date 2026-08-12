@@ -9,6 +9,7 @@
 |------|------|------|
 | [`pc10k/`](pc10k/) | **10,000점+RGB 포인트클라우드 추출** (OpenShape/Uni3D 규격) + 검수 도구 3종 | ✅ 검증 완료 ([SPEC.md](pc10k/SPEC.md)) |
 | [`render/hunyuan3d/`](render/hunyuan3d/) | Blender 멀티뷰 렌더링 (커스텀 채널·조명조건별) — Hunyuan3D-2.1 도구 수정판 | 사용 중 |
+| [`caption/`](caption/) | **영어 캡션 생성 + 한국어 번역 + 한/영 정합성 검수** (Qwen 계열, 전 구간 Apache-2.0) | ✅ 검증 완료 ([SPEC.md](caption/SPEC.md)) |
 | `docker/` | 컨테이너 환경 (compose, `/bin/bash` 진입) | |
 
 ## 빠른 시작
@@ -28,6 +29,11 @@ python -m pc10k.extract --input /data/meshes/ --out /data/pc10k/ --workers 8
 python -m pc10k.validate.compare_openshape --n 200 --zip <test_datasets.zip> --glb_index <glb_index.json>
 python -m pc10k.validate.functional_equiv --n 200        # Uni3D 모델 동등성 (GPU)
 python -m pc10k.validate.render_sidebyside --n 4         # 정성 비교 PNG
+
+# 캡션 생성 (멀티뷰 렌더 → 한/영 문장 쌍)
+python caption/qwen_caption.py --uid_list uids.txt --render_root /data/renders --out caps.jsonl
+python caption/qwen_translate_ko.py --in caps.jsonl --out caps_ko.jsonl
+python caption/qc_bilingual.py --in caps_ko.jsonl --out defects.jsonl
 ```
 
 ## 출력 규격 (요약 — 상세는 [pc10k/SPEC.md](pc10k/SPEC.md))
@@ -41,12 +47,26 @@ python -m pc10k.validate.render_sidebyside --n 4         # 정성 비교 PNG
   임베딩 cos med 0.970, Chamfer med 0.023. released 측정치가 Uni3D 논문(47.2%)을
   재현하므로 평가 프로토콜 자체도 검증됨
 
+## 캡션 규격 (요약 — 상세는 [caption/SPEC.md](caption/SPEC.md))
+
+- 영어 캡션: `Qwen2.5-VL-7B-Instruct` 에 **8뷰 동시 입력** → 통합 캡션 1문장 직접 생성
+  (Cap3D 의 [BLIP-2 → CLIP 선택 → GPT-4 통합] 3단계를 오픈 모델 1단계로 대체)
+- 한국어: `Qwen3-8B` + 도메인 few-shot → 명사구 종결, 브랜드·표면 문구 원문 유지
+- 검수: **형식(규칙) · 내용(숫자·인용문구·색상 사전) · 의미(LaBSE cos)** 3층 자동 검수
+- 검증 실측:
+  - text→3D 검색 **R@1 28.77% vs Cap3D 27.88%** (동일 갤러리 12,935, +0.89%p)
+  - 한/영 정합성 **정상률 92.5%**, 한자 혼입 **0건** (Qwen2.5-7B 85.0% / 규칙만 27.5%)
+
 ## 렌더링 도구 주의사항
 
 `render/hunyuan3d/`는 **Tencent Hunyuan NON-COMMERCIAL 라이선스** 헤더를 가진
 Hunyuan3D-2.1 파생물입니다. 상업/납품 산출물 포함 여부는 발주기관과 사전 협의 필요.
 (원형은 Objaverse-XL Blender 렌더 스크립트 계열)
 
-## 라이선스 (pc10k 모듈 의존성)
+## 라이선스
 
-open3d(MIT) · trimesh(MIT) · scipy(BSD) · numpy(BSD) — 허용적 라이선스만 사용.
+**pc10k**: open3d(MIT) · trimesh(MIT) · scipy(BSD) · numpy(BSD)
+**caption**: Qwen2.5-VL / Qwen3 / LaBSE — 전부 **Apache-2.0** (생성 결과물 활용·상용 배포 제약 없음)
+
+> NLLB-200(CC-BY-NC)은 기술이전 부적합으로 배제했다.
+> 예외는 위 `render/hunyuan3d/` 뿐이며, 별도 협의 대상이다.
