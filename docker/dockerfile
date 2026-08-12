@@ -27,8 +27,14 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # caption 의존성. torch 는 GPU 아키텍처에 맞춰 CUDA 빌드를 고정한다.
 #   TORCH_CUDA=cu128 (기본) → RTX 50xx(sm_120) 포함 전 세대 지원
 #   cu124 는 sm_120 커널이 없어 RTX 50xx 에서 조용히 잘못된 결과를 낸다.
+#
+# --force-reinstall 필수: 베이스 이미지에 이미 torch 가 있으면
+# `pip install torch` 는 버전 조건이 없는 한 --index-url 을 무시하고
+# "Requirement already satisfied" 로 건너뛴다. 그러면 cu128 지정이
+# 아무 효과가 없는데 로그상으로는 성공한 것처럼 보인다(실측 확인).
 ARG TORCH_CUDA=cu128
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/${TORCH_CUDA} \
+RUN pip install --no-cache-dir --force-reinstall \
+        --index-url https://download.pytorch.org/whl/${TORCH_CUDA} \
         torch torchvision
 COPY docker/requirements-caption.txt /tmp/requirements-caption.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-caption.txt
