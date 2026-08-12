@@ -10,12 +10,33 @@
 | [`pc10k/`](pc10k/) | **10,000점+RGB 포인트클라우드 추출** (OpenShape/Uni3D 규격) + 검수 도구 3종 | ✅ 검증 완료 ([SPEC.md](pc10k/SPEC.md)) |
 | [`render/hunyuan3d/`](render/hunyuan3d/) | Blender 멀티뷰 렌더링 (커스텀 채널·조명조건별) — Hunyuan3D-2.1 도구 수정판 | 사용 중 |
 | [`caption/`](caption/) | **영어 캡션 생성 + 한국어 번역 + 한/영 정합성 검수** (Qwen 계열, 전 구간 Apache-2.0) | ✅ 검증 완료 ([SPEC.md](caption/SPEC.md)) |
-| `docker/` | 컨테이너 환경 (compose, `/bin/bash` 진입) | |
+| `docker/` | 컨테이너 환경 2종 (개발용 / 배포용 슬림), `/bin/bash` 진입 | ✅ 빌드·스모크 검증 |
+
+## 컨테이너 이미지 2종
+
+| 이미지 | dockerfile | 크기 | 용도 |
+|--------|-----------|------|------|
+| `previs-prep:1.1` | `docker/dockerfile` | 59.1GB | 사내 개발 베이스(jinhasong/previs:1.0) 상속 |
+| **`previs-prep:slim`** | `docker/dockerfile.slim` | **13.1GB** | **배포·인도용** (nvidia/cuda:12.8.1-runtime 기반) |
+
+두 이미지는 동일 입력에 **동일 결과**를 낸다 (검증: 아래 스모크 테스트 수치 일치).
+슬림 쪽은 모듈이 `/opt/previs-prep` 에 설치되어 레포 마운트 없이 바로 실행된다.
+
+```bash
+# 배포용 슬림 빌드·실행
+docker build -f docker/dockerfile.slim -t previs-prep:slim .
+docker run --rm -it --gpus all -v /data:/data previs-prep:slim
+```
+
+> 빌드 시 `docker/verify_image.py` 가 자동 실행되어 의존성·python 정식릴리스 여부·
+> CUDA 빌드 버전(sm_120 지원)을 확인하고, 하나라도 실패하면 **이미지를 만들지 않는다.**
+> 이 검사로 실제로 5건의 결함을 빌드 단계에서 잡았다(pip 부재, cu128 미적용,
+> libgomp 누락, transformers 메이저 이탈, python RC 버전).
 
 ## 빠른 시작
 
 ```bash
-# 컨테이너 빌드·진입
+# 개발용 컨테이너 빌드·진입
 docker compose up -d --build
 docker exec -it previs /bin/bash
 
@@ -64,6 +85,17 @@ python caption/qc_bilingual.py --in caps_ko.jsonl --out defects.jsonl
 `render/hunyuan3d/`는 **Tencent Hunyuan NON-COMMERCIAL 라이선스** 헤더를 가진
 Hunyuan3D-2.1 파생물입니다. 상업/납품 산출물 포함 여부는 발주기관과 사전 협의 필요.
 (원형은 Objaverse-XL Blender 렌더 스크립트 계열)
+
+## 스모크 테스트 (두 이미지 동일 결과)
+
+| 항목 | previs-prep:1.1 | previs-prep:slim |
+|------|-----------------|------------------|
+| python | 3.11.9 | 3.11.15 |
+| torch / CUDA | 2.11.0+cu128 / 12.8 | 2.11.0+cu128 / 12.8 |
+| GPU arch | sm_75~**sm_120** | sm_75~**sm_120** |
+| CLI 5개 모듈 | ok | ok |
+| pc10k 추출 (동일 GLB) | 10,000점 / max-norm 1.0002 / rgb 0.547 | 10,000점 / max-norm 1.0001 / rgb 0.548 |
+| 한/영 검수 (동일 200건) | 정상률 98.00% | 정상률 98.00% |
 
 ## 라이선스
 
