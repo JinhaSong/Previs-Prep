@@ -140,7 +140,8 @@ def _color_lost(ko, en):
 
 def _quote_lost(ko, en):
     """객체 표면에 적힌 문구는 원문 유지가 규칙(2번)이다."""
-    return [q for q in _QUOTED_EN.findall(en) if q not in ko]
+    return [q for q in (x.strip(" .,!?;:") for x in _QUOTED_EN.findall(en))
+            if len(q) >= 2 and q not in ko]
 
 
 def ko_defects(s, en=None):
@@ -372,6 +373,8 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--num_shards", type=int, default=1)
+    ap.add_argument("--done_from", default=None,
+                    help="완료분으로 간주할 기존 jsonl glob (다른 서버 산출물 통합 resume)")
     ap.add_argument("--repair", default=None,
                     help="기존 출력 jsonl(glob). 결함 건만 재번역해 --out 으로 병합")
     ap.add_argument("--no_semantic_gate", action="store_true",
@@ -387,6 +390,16 @@ def main():
     if args.limit:
         recs = recs[:args.limit]
     done = set()
+    for f in (glob.glob(args.done_from) if args.done_from else []):
+        for l in open(f, encoding="utf-8"):
+            try:
+                d = json.loads(l)
+                if d.get("caption_ko"):
+                    done.add(d["uid"])
+            except Exception:
+                pass
+    if done:
+        print(f"[resume] 외부 산출물 {len(done):,}개 skip", flush=True)
     if os.path.exists(args.out):
         for l in open(args.out, encoding="utf-8"):
             try:

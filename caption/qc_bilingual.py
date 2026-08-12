@@ -72,8 +72,9 @@ def content_defects(en, ko):
     if miss_num:
         d.append("num_lost")       # "3-tier", "2 reels" 등 수량 정보 소실
 
-    for q in _QUOTED.findall(en):  # 객체에 실제로 적힌 문구는 원문 유지가 규칙
-        if q not in ko:
+    for q in (x.strip(" .,!?;:") for x in _QUOTED.findall(en)):
+        # 인용부호 안쪽 끝의 문장부호는 원문 문장의 것 — 보존 대상이 아니다
+        if len(q) >= 2 and q not in ko:
             d.append("quote_lost")
             break
 
