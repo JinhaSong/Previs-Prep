@@ -37,18 +37,31 @@ check("transformers", lambda: __import__("transformers").__version__)
 check("accelerate", lambda: __import__("accelerate").__version__)
 
 
-def arch_list():
+def cuda_build():
+    """빌드 시점에는 GPU 가 없으므로 CUDA **빌드 버전**으로 판정한다.
+
+    torch.cuda.get_arch_list() 는 내부적으로 is_available() 을 먼저 보고
+    GPU 가 없으면 무조건 [] 를 반환하므로 빌드 단계 검사에 쓸 수 없다.
+    cu128(CUDA 12.8) 이상이면 sm_120 커널이 포함된다."""
     import torch
-    archs = torch.cuda.get_arch_list()
-    if not any(a in archs for a in ("sm_120", "compute_120")):
+    v = torch.version.cuda
+    if v is None:
+        raise RuntimeError("CPU 전용 torch — CUDA 빌드를 설치할 것")
+    if tuple(int(x) for x in v.split(".")[:2]) < (12, 8):
         raise RuntimeError(
-            f"sm_120(RTX 50xx) 커널 없음 — {archs}. "
-            "cu128 이상으로 빌드할 것 (--build-arg TORCH_CUDA=cu128)")
-    return archs
+            f"torch CUDA {v} — RTX 50xx(sm_120) 커널 없음. "
+            "cu128 이상으로 빌드할 것 (--build-arg TORCH_CUDA=cu128). "
+            "베이스 이미지에 torch 가 있으면 --force-reinstall 없이는 무시된다")
+    if torch.cuda.is_available():           # 런타임 실행 시에는 실제 목록까지 확인
+        archs = torch.cuda.get_arch_list()
+        if not any("120" in a for a in archs):
+            raise RuntimeError(f"sm_120 커널 없음 — {archs}")
+        return f"{torch.__version__} / CUDA {v} / arch {archs}"
+    return f"{torch.__version__} / CUDA {v}  (빌드 시 GPU 없음 → arch 목록은 런타임 검증)"
 
 
 print("\n[GPU 아키텍처 지원]")
-check("torch arch_list", arch_list)
+check("torch CUDA build", cuda_build)
 
 
 def qwen_classes():
