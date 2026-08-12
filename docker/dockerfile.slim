@@ -17,10 +17,10 @@ ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 ARG DEBIAN_FRONTEND=noninteractive
 
-# libgl1/libglib2.0-0 : open3d 런타임 의존
+# libgl1/libglib2.0-0/libgomp1 : open3d 런타임 의존 (libgomp = OpenMP)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.11 python3.11-venv python3-pip \
-        libgl1 libglib2.0-0 \
+        libgl1 libglib2.0-0 libgomp1 \
         git wget ca-certificates tzdata \
     && ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime \
     && ln -sf /usr/bin/python3.11 /usr/local/bin/python \
