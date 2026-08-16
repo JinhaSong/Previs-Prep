@@ -16,16 +16,22 @@
 
 | 이미지 | dockerfile | 크기 | 용도 |
 |--------|-----------|------|------|
-| `previs-prep:1.1` | `docker/dockerfile` | 59.1GB | 사내 개발 베이스(jinhasong/previs:1.0) 상속 |
-| **`previs-prep:slim`** | `docker/dockerfile.slim` | **13.1GB** | **배포·인도용** (nvidia/cuda:12.8.1-runtime 기반) |
+| **`jinhasong/previs-prep:2.0`** | `docker/dockerfile.slim` | **13.1GB** | **배포·인도용** (Docker Hub 공개, nvidia/cuda:12.8.1-runtime 기반) |
+| `previs-prep:dev` | `docker/dockerfile` | 59.1GB | 사내 개발용 (jinhasong/previs:1.0 상속, 미배포) |
+
+> **2.0** = 포인트클라우드(pc10k) + 문장 생성·검수(caption) 모듈을 모두 포함한 버전.
 
 두 이미지는 동일 입력에 **동일 결과**를 낸다 (검증: 아래 스모크 테스트 수치 일치).
 슬림 쪽은 모듈이 `/opt/previs-prep` 에 설치되어 레포 마운트 없이 바로 실행된다.
 
 ```bash
 # 배포용 슬림 빌드·실행
-docker build -f docker/dockerfile.slim -t previs-prep:slim .
-docker run --rm -it --gpus all -v /data:/data previs-prep:slim
+# Docker Hub 에서 바로 사용
+docker pull jinhasong/previs-prep:2.0
+docker run --rm -it --gpus all -v /data:/data jinhasong/previs-prep:2.0
+
+# 또는 직접 빌드
+docker build -f docker/dockerfile.slim -t previs-prep:2.0 .
 ```
 
 > 빌드 시 `docker/verify_image.py` 가 자동 실행되어 의존성·python 정식릴리스 여부·
@@ -88,7 +94,7 @@ Hunyuan3D-2.1 파생물입니다. 상업/납품 산출물 포함 여부는 발�
 
 ## 스모크 테스트 (두 이미지 동일 결과)
 
-| 항목 | previs-prep:1.1 | previs-prep:slim |
+| 항목 | previs-prep:dev (59.1GB) | **previs-prep:2.0** (13.1GB) |
 |------|-----------------|------------------|
 | python | 3.11.9 | 3.11.15 |
 | torch / CUDA | 2.11.0+cu128 / 12.8 | 2.11.0+cu128 / 12.8 |
