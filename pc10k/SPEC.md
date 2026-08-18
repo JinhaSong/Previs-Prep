@@ -20,6 +20,28 @@ property uchar red, green, blue # 색 (0~255)
 **학습용 병행 포맷: `.npy`** — `(10000, 9) float16` `[xyz | nx,ny,nz | rgb]`
 (모델 입력 시 xyz+rgb 6채널만 사용 — Uni3D/OpenShape 호환)
 
+**정규화 파라미터: `.norm.json`** (추출 시 자동 생성)
+
+```json
+{"num_points": 10000, "normalization": "unit_sphere",
+ "offset": [x, y, z],            // 제거한 centroid
+ "scale": 5.937958,              // 나눈 max-norm
+ "aabb_normalized": {"min": [...], "max": [...]},
+ "aabb_original":   {"min": [...], "max": [...]},
+ "axis_convention": "mesh_original",
+ "source_mesh": "xxxx.glb"}
+```
+
+원본 좌표 복원: **`p_orig = p_norm * scale + offset`**
+
+> **왜 따로 기록하는가**: centroid·max-norm 은 메시가 아니라 **샘플된 10,000점 기준**으로
+> 계산되고 샘플링이 난수이므로, 같은 메시를 다시 추출해도 값이 달라진다
+> (실측: AABB 편차 최대 0.018). 즉 사후에 원본 메시로부터 역산할 수 없으므로
+> **추출 시점에 기록해 두는 것이 유일한 방법**이다.
+> 용역 SDA-3 "다시점 이미지·카메라 파라미터와 동일한 좌표계 정합",
+> DIV-3 "3D 포인트 역투영·바운딩박스 투영 일치도" 시험에 필요하다.
+> (검증: 복원 오차 1.3e-03 — float16 저장 정밀도 수준)
+
 | 항목 | 값 |
 |------|-----|
 | 점 개수 | **10,000** (다중 해상도 필요 시 본 규격에서 다운샘플) |
