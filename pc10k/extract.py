@@ -247,11 +247,13 @@ def _extract_trimesh(p, num_points):
     return xyz, rgb, nrm
 
 
-def extract_colored_pc(mesh_path, num_points=NPOINTS, with_normals=False):
+def extract_colored_pc(mesh_path, num_points=NPOINTS, with_normals=False,
+                       return_meta=False):
     """mesh → float16 배열. flip 없음, xyz unit-sphere, rgb [0,1].
 
     with_normals=False: (N, 6) [xyz | rgb]        (모델 입력·학습용, 기본)
     with_normals=True : (N, 9) [xyz | nx,ny,nz | rgb]  (납품 규격 — 면법선)
+    return_meta=True  : (배열, meta dict) — 정규화 파라미터 동봉
 
     Open3D 우선 (OpenShape released 와 동등성 검증), 실패 시 trimesh 폴백."""
     p = str(mesh_path)
@@ -266,13 +268,36 @@ def extract_colored_pc(mesh_path, num_points=NPOINTS, with_normals=False):
     if len(xyz) != num_points:
         idx = np.random.choice(len(xyz), num_points, replace=len(xyz) < num_points)
         xyz, rgb = xyz[idx], rgb[idx]
-    xyz = xyz - xyz.mean(0)
-    mmax = np.linalg.norm(xyz, axis=1).max()
+    # 정규화 파라미터는 **샘플된 점 기준**으로 계산된다. 샘플링이 난수라
+    # 같은 메시라도 실행마다 값이 달라지므로(실측 AABB 편차 최대 0.018),
+    # 사후에 원본 좌표계로 되돌리려면 이 값을 그때 기록해 두는 수밖에 없다.
+    # (용역 SDA-3 "카메라 파라미터와 동일 좌표계 정합", DIV-3 "3D-2D 투영 검증")
+    centroid = xyz.mean(0)
+    xyz = xyz - centroid
+    mmax = float(np.linalg.norm(xyz, axis=1).max())
     if mmax > 1e-6:
         xyz = xyz / mmax                            # 평행이동+등방스케일 → 법선 불변
+    else:
+        mmax = 1.0
     if with_normals:
-        return np.concatenate([xyz, nrm[:len(xyz)], rgb], axis=1).astype(np.float16)
-    return np.concatenate([xyz, rgb], axis=1).astype(np.float16)
+        pc = np.concatenate([xyz, nrm[:len(xyz)], rgb], axis=1).astype(np.float16)
+    else:
+        pc = np.concatenate([xyz, rgb], axis=1).astype(np.float16)
+    if not return_meta:
+        return pc
+    meta = {
+        "num_points": int(len(xyz)),
+        "normalization": "unit_sphere",     # centroid 제거 후 max-norm 으로 나눔
+        # 원본 좌표 복원:  p_orig = p_norm * scale + offset
+        "offset": [float(v) for v in centroid],
+        "scale": mmax,
+        "aabb_normalized": {"min": [float(v) for v in xyz.min(0)],
+                            "max": [float(v) for v in xyz.max(0)]},
+        "aabb_original": {"min": [float(v) for v in (xyz.min(0) * mmax + centroid)],
+                          "max": [float(v) for v in (xyz.max(0) * mmax + centroid)]},
+        "axis_convention": "mesh_original",  # YZ flip 등 축 변환 없음
+    }
+    return pc, meta
 
 
 def write_ply(path, pc9):
@@ -300,14 +325,19 @@ def write_ply(path, pc9):
         f.write(arr.tobytes())
 
 
-def _save(out_path, pc9, fmt):
-    """fmt 에 따라 저장. ply=납품규격 / npy=(N,9) f16 / both=둘 다."""
+def _save(out_path, pc9, fmt, meta=None):
+    """fmt 에 따라 저장. ply=납품규격 / npy=(N,9) f16 / both=둘 다.
+
+    meta 가 주어지면 같은 이름의 `.norm.json` 으로 정규화 파라미터를 남긴다."""
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     if fmt in ("ply", "both"):
         write_ply(out.with_suffix(".ply"), pc9)
     if fmt in ("npy", "both"):
         np.save(out.with_suffix(".npy"), np.asarray(pc9, np.float16))
+    if meta is not None:
+        with open(out.with_suffix(".norm.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
 def _timeout(signum, frame):
@@ -332,8 +362,10 @@ def _one(a):
             signal.alarm(timeout_s)
         except Exception:
             pass
-        pc = extract_colored_pc(mesh_path, npoints, with_normals=True)
-        _save(out_path, pc, fmt)
+        pc, meta = extract_colored_pc(mesh_path, npoints, with_normals=True,
+                                      return_meta=True)
+        meta["source_mesh"] = os.path.basename(str(mesh_path))
+        _save(out_path, pc, fmt, meta)
         try:
             os.remove(attempt)
         except Exception:
@@ -370,8 +402,10 @@ def main():
 
     inp = Path(args.input)
     if inp.is_file():                                   # 단일 파일
-        pc = extract_colored_pc(str(inp), args.npoints, with_normals=True)
-        _save(args.out, pc, args.format)
+        pc, meta = extract_colored_pc(str(inp), args.npoints, with_normals=True,
+                                      return_meta=True)
+        meta["source_mesh"] = inp.name
+        _save(args.out, pc, args.format, meta)
         print(f"OK {Path(args.out).with_suffix('')}.[{args.format}]  {pc.shape}")
         return
 
