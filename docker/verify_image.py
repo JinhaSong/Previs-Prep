@@ -76,6 +76,10 @@ def qwen_classes():
     return "Qwen2.5-VL / CausalLM 클래스 확인"
 
 
+print("\n[usd 의존성]")
+check("usd-core (pxr)", lambda: __import__("pxr.Usd", fromlist=["Usd"]).Usd.GetVersion())
+check("pygltflib", lambda: __import__("pygltflib").__version__)
+
 print("\n[모델 클래스]")
 check("transformers Qwen", qwen_classes)
 

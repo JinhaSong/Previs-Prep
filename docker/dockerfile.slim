@@ -47,7 +47,9 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/${TO
 
 COPY docker/requirements.txt /tmp/requirements.txt
 COPY docker/requirements-caption.txt /tmp/requirements-caption.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt -r /tmp/requirements-caption.txt
+COPY docker/requirements-usd.txt /tmp/requirements-usd.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+        -r /tmp/requirements-caption.txt -r /tmp/requirements-usd.txt
 
 # 빌드 산출물 자체 검증 — 실패 시 이미지가 만들어지지 않는다
 COPY docker/verify_image.py /tmp/verify_image.py
@@ -59,6 +61,7 @@ VOLUME ["/root/.cache/huggingface"]
 
 COPY pc10k /opt/previs-prep/pc10k
 COPY caption /opt/previs-prep/caption
+COPY usd /opt/previs-prep/usd
 ENV PYTHONPATH=/opt/previs-prep
 
 WORKDIR /workspace

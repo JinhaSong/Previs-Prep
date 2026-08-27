@@ -38,6 +38,8 @@ RUN pip install --no-cache-dir --force-reinstall \
         torch torchvision
 COPY docker/requirements-caption.txt /tmp/requirements-caption.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-caption.txt
+COPY docker/requirements-usd.txt /tmp/requirements-usd.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-usd.txt
 
 # 빌드 산출물 자체 검증 — 여기서 실패하면 이미지가 만들어지지 않는다.
 # (의존성이 깨진 이미지가 인도되는 것을 막는다)

@@ -1,0 +1,9 @@
+# usd/ 메시 → USD 변환 (GPU 불필요, CPU 멀티프로세스)
+#
+# 엔진은 Pixar OpenUSD 공식 파이썬 배포판. Omniverse Kit(NVIDIA 라이선스, NGC 계정
+# 필요)을 쓰지 않으므로 납품 라이선스 조건과 충돌하지 않는다.
+usd-core                  # Pixar OpenUSD (Apache-2.0)
+trimesh                   # 메시 로딩 (MIT)
+pygltflib                 # glTF/GLB 파서 (MIT)
+pillow                    # 텍스처 추출
+networkx                  # trimesh scene graph

@@ -10,6 +10,7 @@
 | [`pc10k/`](pc10k/) | **10,000점+RGB 포인트클라우드 추출** (OpenShape/Uni3D 규격) + 검수 도구 3종 | ✅ 검증 완료 ([SPEC.md](pc10k/SPEC.md)) |
 | [`render/hunyuan3d/`](render/hunyuan3d/) | Blender 멀티뷰 렌더링 (커스텀 채널·조명조건별) — Hunyuan3D-2.1 도구 수정판 | 사용 중 |
 | [`caption/`](caption/) | **영어 캡션 생성 + 한국어 번역 + 한/영 정합성 검수** (Qwen 계열, 전 구간 Apache-2.0) | ✅ 검증 완료 ([SPEC.md](caption/SPEC.md)) |
+| [`usd/`](usd/) | **USD 변환** (OpenUSD) — glb/obj/ply/stl → usdc, UV·머티리얼 포함 | ✅ 검증 완료 ([SPEC.md](usd/SPEC.md)) |
 | `docker/` | 컨테이너 환경 2종 (개발용 / 배포용 슬림), `/bin/bash` 진입 | ✅ 빌드·스모크 검증 |
 
 ## 컨테이너 이미지 2종
@@ -195,7 +196,27 @@ uid 중복 제거 · 실패 레코드 제거 · 커버리지/클래스 분포 �
 
 `caption` 은 항상 대표문 1개이므로, 복수 문장을 쓰지 않는 소비자도 그대로 읽을 수 있다.
 
-### 8. 개발용 컨테이너 (사내)
+### 8. USD 변환
+
+```bash
+# 디렉토리 배치 (재귀, resume, 병렬 — GPU 불필요)
+python -m usd.convert --input /data/meshes/ --out /data/usd/ --workers 8 \
+    --fail_log /data/usd_fail.jsonl
+```
+
+| 옵션 | 기본 | 설명 |
+|------|------|------|
+| `--ext` | `usdc` | `usdc`(바이너리) / `usda`(텍스트) |
+| `--workers` | CPU 수 | 프로세스 병렬 |
+| `--timeout` | `120` | 파일당 제한(초) |
+| `--overwrite` | off | 기본은 resume |
+| `--shard`/`--num_shards` | `0`/`1` | 서버 분산 |
+
+지오메트리·법선에 더해 **UV(`primvars:st`)와 UsdPreviewSurface 머티리얼**(텍스처 PNG 추출 포함)을
+기록하고, 면이 없는 포인트클라우드 GLB 는 `UsdGeomPoints` 로 변환한다.
+엔진은 usd-core(Pixar OpenUSD, Apache-2.0)라 **별도 컨테이너·NGC 계정이 필요 없다.**
+
+### 9. 개발용 컨테이너 (사내)
 
 ```bash
 docker compose up -d --build
@@ -246,8 +267,14 @@ Hunyuan3D-2.1 파생물입니다. 상업/납품 산출물 포함 여부는 발�
 
 ## 라이선스
 
-**pc10k**: open3d(MIT) · trimesh(MIT) · scipy(BSD) · numpy(BSD)
-**caption**: Qwen2.5-VL / Qwen3 / LaBSE — 전부 **Apache-2.0** (생성 결과물 활용·상용 배포 제약 없음)
+| 모듈 | 라이선스 | 납품 가능 |
+|------|----------|-----------|
+| **pc10k** | open3d(MIT) · trimesh(MIT) · scipy·numpy(BSD) | ✅ |
+| **caption** | Qwen2.5-VL / Qwen3 / LaBSE — 전부 **Apache-2.0** | ✅ |
+| **usd** | usd-core(Pixar OpenUSD, Apache-2.0) · trimesh·pygltflib(MIT) | ✅ |
+| **render/hunyuan3d** | **Tencent Hunyuan NON-COMMERCIAL** | ⚠️ 협의 필요 |
 
 > NLLB-200(CC-BY-NC)은 기술이전 부적합으로 배제했다.
-> 예외는 위 `render/hunyuan3d/` 뿐이며, 별도 협의 대상이다.
+> USD 변환은 초기에 Omniverse Kit(NVIDIA 라이선스, NGC 계정 필요)을 검토했으나
+> 계약 조건과 맞지 않아 **usd-core 로 대체**했다. 협의가 필요한 모듈은
+> `render/hunyuan3d/` 뿐이며, 디렉토리 단위로 분리되어 있어 제외해도 나머지는 그대로 동작한다.
