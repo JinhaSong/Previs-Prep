@@ -76,8 +76,15 @@ def qwen_classes():
     return "Qwen2.5-VL / CausalLM 클래스 확인"
 
 
+def usd_core():
+    """usd-core 는 __version__ 을 노출하지 않으므로 실제 사용 API 로 확인한다."""
+    from pxr import Usd, UsdGeom, UsdShade   # noqa: F401
+    v = Usd.GetVersion()                     # (major, minor, patch) 튜플
+    return ".".join(str(x) for x in v) if isinstance(v, tuple) else str(v)
+
+
 print("\n[usd 의존성]")
-check("usd-core (pxr)", lambda: __import__("pxr.Usd", fromlist=["Usd"]).Usd.GetVersion())
+check("usd-core (pxr)", usd_core)
 check("pygltflib", lambda: __import__("pygltflib").__version__)
 
 print("\n[모델 클래스]")
