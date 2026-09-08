@@ -216,6 +216,14 @@ python -m usd.convert --input /data/meshes/ --out /data/usd/ --workers 8 \
 기록하고, 면이 없는 포인트클라우드 GLB 는 `UsdGeomPoints` 로 변환한다.
 엔진은 usd-core(Pixar OpenUSD, Apache-2.0)라 **별도 컨테이너·NGC 계정이 필요 없다.**
 
+산출물은 **Blender 실임포트로 검증**한다 — USD 자체 API 로는 정상으로 보이는 결함
+(텍스처 중복, 색 소실)이 잡힌다. 상세·수치는 [usd/SPEC.md](usd/SPEC.md) §5.1.
+```bash
+python -m usd.validate_blender --glb_dir /data/meshes --usd_dir /data/usd --n 20
+```
+> ⚠️ 검증 도구는 `bpy`(GPL-3.0)를 쓰므로 **인도 이미지에 포함하지 않는다.**
+> USD 산출물 자체는 GPL 무관이다.
+
 ### 9. 개발용 컨테이너 (사내)
 
 ```bash

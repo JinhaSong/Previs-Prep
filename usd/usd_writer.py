@@ -12,6 +12,7 @@
   - 폴백      : 텍스처 없으면 baseColorFactor, 그것도 없으면 정점색 displayColor
 """
 
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -44,8 +45,11 @@ def _mesh_list(obj):
     return out
 
 
-def _save_texture(mesh, out_usd, idx):
-    """baseColor 텍스처를 PNG 로 저장하고 상대경로 반환. 없으면 None."""
+def _save_texture(mesh, out_usd, idx, cache=None):
+    """baseColor 텍스처를 PNG 로 저장하고 상대경로 반환. 없으면 None.
+
+    같은 이미지를 여러 메시가 공유하는 경우가 많아, 내용 해시로 **중복 저장을 막는다**
+    (미적용 시 실측: glb 텍스처 10개 → usd 36개로 팽창)."""
     mat = getattr(mesh.visual, "material", None)
     if mat is None:
         return None
@@ -53,19 +57,30 @@ def _save_texture(mesh, out_usd, idx):
     if img is None:
         return None
     try:
+        rgba = img.convert("RGBA")
+        key = hashlib.md5(rgba.tobytes()).hexdigest()[:12]
+        if cache is not None and key in cache:
+            return cache[key]
         tex_dir = Path(out_usd).parent / TEX_DIRNAME
         tex_dir.mkdir(parents=True, exist_ok=True)
-        name = f"{Path(out_usd).stem}_{idx}.png"
-        img.convert("RGBA").save(tex_dir / name)
-        return f"./{TEX_DIRNAME}/{name}"
+        name = f"{Path(out_usd).stem}_{key}.png"
+        rgba.save(tex_dir / name)
+        rel = f"./{TEX_DIRNAME}/{name}"
+        if cache is not None:
+            cache[key] = rel
+        return rel
     except Exception:
         return None
 
 
 def _base_color(mesh):
-    """텍스처가 없을 때 쓸 단색. (r,g,b) 0~1 또는 None."""
+    """텍스처가 없을 때 쓸 단색. (r,g,b) 0~1 또는 None.
+
+    trimesh PBRMaterial 은 glTF 원본에 따라 색을 서로 다른 속성에 담는다.
+    `main_color` 만 가진 경우가 흔한데(실측), 이를 빠뜨리면 색이 회색으로
+    떨어져 원본과 달라진다."""
     mat = getattr(mesh.visual, "material", None)
-    for attr in ("baseColorFactor", "diffuse"):
+    for attr in ("baseColorFactor", "main_color", "diffuse"):
         v = getattr(mat, attr, None) if mat is not None else None
         if v is not None and len(v) >= 3:
             v = np.asarray(v, dtype=float)
@@ -111,6 +126,7 @@ def write_usd(src, dst, up_axis="Y", meters_per_unit=1.0):
                            else UsdGeom.Tokens.z)
     UsdGeom.SetStageMetersPerUnit(stage, meters_per_unit)
 
+    tex_cache = {}                       # 이미지 해시 → 상대경로 (중복 저장 방지)
     root = UsdGeom.Xform.Define(stage, "/Root")
     stage.SetDefaultPrim(root.GetPrim())
 
@@ -158,15 +174,16 @@ def write_usd(src, dst, up_axis="Y", meters_per_unit=1.0):
                 "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
             st.Set(Vt.Vec2fArray([Gf.Vec2f(float(u), float(v)) for u, v in uv.tolist()]))
 
-        tex_rel = _save_texture(m, dst, i) if uv is not None else None  # 최종명 기준
+        tex_rel = _save_texture(m, dst, i, tex_cache) if uv is not None else None
         color = _base_color(m)
         vcol = _vertex_colors(m)
 
-        if tex_rel is None and color is None and vcol is not None:
-            # 머티리얼이 전혀 없으면 정점색만이라도 살린다
+        # 정점색이 있으면 항상 displayColor 로 남긴다(머티리얼 유무와 무관).
+        if vcol is not None:
             dc = UsdGeom.PrimvarsAPI(usd_mesh).CreatePrimvar(
                 "displayColor", Sdf.ValueTypeNames.Color3fArray, UsdGeom.Tokens.vertex)
             dc.Set(Vt.Vec3fArray([Gf.Vec3f(*c) for c in vcol.tolist()]))
+        if tex_rel is None and color is None and vcol is None:
             continue
 
         mat_path = f"{prim_path}/Material"
@@ -188,6 +205,15 @@ def write_usd(src, dst, up_axis="Y", meters_per_unit=1.0):
             tex.CreateOutput("rgb", Sdf.ValueTypeNames.Float3)
             shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(
                 tex.ConnectableAPI(), "rgb")
+        elif vcol is not None:
+            # 정점색 구동 머티리얼 — 상수색으로 두면 Blender 등에서 연결이 끊긴다.
+            # USD 표준대로 displayColor primvar 를 읽어 diffuseColor 에 잇는다.
+            rd = UsdShade.Shader.Define(stage, f"{mat_path}/displayColorReader")
+            rd.CreateIdAttr("UsdPrimvarReader_float3")
+            rd.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("displayColor")
+            rd.CreateOutput("result", Sdf.ValueTypeNames.Float3)
+            shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(
+                rd.ConnectableAPI(), "result")
         else:
             shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(
                 Gf.Vec3f(*(color or (0.5, 0.5, 0.5))))
