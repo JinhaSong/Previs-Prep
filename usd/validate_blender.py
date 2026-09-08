@@ -41,16 +41,28 @@ TOL_REL = 0.01          # bbox 상대 허용오차
 TOL_ABS = 0.02
 
 
-MIN_BLENDER = (4, 1, 0)
+MIN_BLENDER = (3, 6, 0)     # 3.0.x 는 임포트에서 UVTexture 를 만들지 않는다
+RENDER_OK = (3, 6)          # 렌더 평가가 정상인 계열 (4.x/5.x 는 머티리얼 누락 회귀)
 
 
-def _check_version():
-    """3.0.x 는 임포트에서 UVTexture 를 생성하지 않아 판정이 무의미하다."""
+def _check_version(need_render=False):
+    """버전 요건은 검사 방식에 따라 다르다.
+
+    · 임포트 레벨 검사 : 3.6 이상 (3.0.x 는 UVTexture 미생성 → 정상 파일 오판)
+    · 렌더 기반 검사   : 3.6 계열만 (4.x/5.x 는 임포트는 되나 렌더에서 머티리얼 누락)
+    초기 구현은 하한을 4.1 로 잡아 **렌더가 유일하게 정상인 3.6 을 차단**했다.
+    """
     import bpy
-    if bpy.app.version < MIN_BLENDER:
+    v = bpy.app.version
+    if v < MIN_BLENDER:
         raise SystemExit(
             f"[중단] Blender {bpy.app.version_string} 는 USD 머티리얼 임포트가 불완전합니다"
             f" (요건 {'.'.join(map(str, MIN_BLENDER))}+). 정상 파일을 실패로 오판합니다.")
+    if need_render and v[:2] != RENDER_OK:
+        raise SystemExit(
+            f"[중단] 렌더 기반 검사는 Blender 3.6 계열이 필요합니다 "
+            f"(현재 {bpy.app.version_string}). 4.x/5.x 는 임포트는 정상이나 "
+            "렌더 평가에서 USD 머티리얼이 누락됩니다.")
 
 
 def _measure(path, kind):

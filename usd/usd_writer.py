@@ -20,6 +20,60 @@ import numpy as np
 TEX_DIRNAME = "textures"          # {출력}.usdc 옆에 textures/ 로 저장
 
 
+# glTF COLOR_0 직접 파싱 — trimesh 는 머티리얼이 PBRMaterial(TextureVisuals) 이면
+# COLOR_0 을 버린다(vertex_attributes 가 비고 visual.vertex_colors 도 없음).
+# 실측: 표본 120개 중 **5.0% 가 텍스처 없이 COLOR_0 만으로 색을 표현**하며,
+# 이를 놓치면 해당 객체의 색이 통째로 사라진다.
+_COMP = {5121: (np.uint8, 255.0), 5123: (np.uint16, 65535.0), 5126: (np.float32, 1.0)}
+_NCOMP = {"VEC3": 3, "VEC4": 4}
+
+
+def _gltf_color0(path):
+    """glTF/GLB 의 mesh 별 COLOR_0 을 읽어 {(정점수, 위치키): (N,3) float 0~1} 로 반환."""
+    if Path(path).suffix.lower() not in (".glb", ".gltf"):
+        return {}
+    try:
+        from pygltflib import GLTF2
+        g = GLTF2().load(str(path))
+        blob = g.binary_blob()
+        if blob is None:
+            return {}
+
+        def read(acc_idx):
+            acc = g.accessors[acc_idx]
+            bv = g.bufferViews[acc.bufferView]
+            dt, scale = _COMP.get(acc.componentType, (None, None))
+            n = _NCOMP.get(acc.type)
+            if dt is None or n is None:
+                return None
+            off = (bv.byteOffset or 0) + (acc.byteOffset or 0)
+            a = np.frombuffer(blob, dtype=dt, count=acc.count * n, offset=off)
+            return a.reshape(acc.count, n).astype(np.float32) / scale
+
+        out = {}
+        for m in g.meshes:
+            for pr in m.primitives:
+                ci = getattr(pr.attributes, "COLOR_0", None)
+                pi = getattr(pr.attributes, "POSITION", None)
+                if ci is None or pi is None:
+                    continue
+                col = read(ci)
+                pos = read(pi)
+                if col is None or pos is None:
+                    continue
+                out[(len(pos), _pos_key(pos))] = col[:, :3]
+        return out
+    except Exception:
+        return {}                       # 파싱 실패 시 조용히 기존 경로로 진행
+
+
+def _pos_key(v):
+    """정점 배열의 지문 — trimesh 지오메트리와 glTF primitive 를 이어붙이는 데 쓴다.
+    (이름·순서는 로더에 따라 달라질 수 있어 좌표 자체로 대조한다)"""
+    v = np.asarray(v, np.float64)
+    return tuple(np.round(v[0], 4).tolist()) + tuple(np.round(v.mean(0), 3).tolist())
+
+
 def _mesh_list(obj):
     """trimesh Scene/Trimesh → [(name, geom)] (변환행렬 적용).
 
@@ -27,13 +81,14 @@ def _mesh_list(obj):
     이를 실패로 버리면 변환 대상이 통째로 빠지므로, UsdGeomPoints 로 기록한다."""
     import trimesh
     if isinstance(obj, (trimesh.Trimesh, trimesh.PointCloud)):
-        return [("mesh_0", obj)]
+        return [("mesh_0", obj, (len(obj.vertices), _pos_key(obj.vertices)))]
     out = []
     for i, (name, geom) in enumerate(obj.geometry.items()):
         is_mesh = isinstance(geom, trimesh.Trimesh) and len(geom.faces) > 0
         is_pts = isinstance(geom, trimesh.PointCloud) and len(geom.vertices) > 0
         if not (is_mesh or is_pts):
             continue
+        key = (len(geom.vertices), _pos_key(geom.vertices))   # 변환 적용 전 기준
         g = geom.copy()
         # Scene graph 의 변환을 정점에 굽는다 (USD 에 계층을 만들지 않고 평탄화)
         for node in obj.graph.nodes_geometry:
@@ -41,7 +96,7 @@ def _mesh_list(obj):
             if gname == name:
                 g.apply_transform(tf)
                 break
-        out.append((f"mesh_{i}", g))
+        out.append((f"mesh_{i}", g, key))
     return out
 
 
@@ -112,6 +167,7 @@ def write_usd(src, dst, up_axis="Y", meters_per_unit=1.0):
     src, dst = Path(src), Path(dst)
     loaded = trimesh.load(str(src), force="scene", process=False)
     meshes = _mesh_list(loaded)
+    color0 = _gltf_color0(src)          # trimesh 가 버리는 COLOR_0 을 직접 확보
     if not meshes:
         raise ValueError("메시 없음")
 
@@ -130,7 +186,7 @@ def write_usd(src, dst, up_axis="Y", meters_per_unit=1.0):
     root = UsdGeom.Xform.Define(stage, "/Root")
     stage.SetDefaultPrim(root.GetPrim())
 
-    for i, (name, m) in enumerate(meshes):
+    for i, (name, m, key) in enumerate(meshes):
         prim_path = f"/Root/{name}"
 
         if not hasattr(m, "faces") or len(getattr(m, "faces", [])) == 0:
@@ -141,7 +197,9 @@ def write_usd(src, dst, up_axis="Y", meters_per_unit=1.0):
             scale = float(np.linalg.norm(v.max(0) - v.min(0))) or 1.0
             pts.GetWidthsAttr().Set(Vt.FloatArray([scale * 0.002] * len(v)))
             pts.SetWidthsInterpolation(UsdGeom.Tokens.vertex)
-            vcol = _vertex_colors(m)
+            vcol = color0.get(key)
+            if vcol is None:
+                vcol = _vertex_colors(m)
             if vcol is not None:
                 pts.GetDisplayColorAttr().Set(
                     Vt.Vec3fArray([Gf.Vec3f(*c) for c in vcol.tolist()]))
@@ -176,7 +234,13 @@ def write_usd(src, dst, up_axis="Y", meters_per_unit=1.0):
 
         tex_rel = _save_texture(m, dst, i, tex_cache) if uv is not None else None
         color = _base_color(m)
-        vcol = _vertex_colors(m)
+        # COLOR_0 우선 — trimesh 의 main_color 는 요약값이라, 정점색으로 표현된
+        # 객체를 단색으로 뭉갠다(실측: 크림/연노랑 객체가 균일 회색이 됐다).
+        vcol = color0.get(key)
+        if vcol is None:
+            vcol = _vertex_colors(m)
+        if vcol is not None and len(vcol) != len(m.vertices):
+            vcol = None                 # 정점수 불일치 시 사용하지 않는다
 
         # 정점색이 있으면 항상 displayColor 로 남긴다(머티리얼 유무와 무관).
         if vcol is not None:
