@@ -13,12 +13,17 @@
 | [`usd/`](usd/) | **USD 변환** (OpenUSD) — glb/obj/ply/stl → usdc, UV·머티리얼 포함 | ✅ 검증 완료 ([SPEC.md](usd/SPEC.md)) |
 | `docker/` | 컨테이너 환경 2종 (개발용 / 배포용 슬림), `/bin/bash` 진입 | ✅ 빌드·스모크 검증 |
 
-## 컨테이너 이미지 2종
+## 컨테이너 이미지 3종
 
-| 이미지 | dockerfile | 크기 | 용도 |
-|--------|-----------|------|------|
-| **`jinhasong/previs-prep:2.0`** | `docker/dockerfile.slim` | **13.1GB** | **배포·인도용** (Docker Hub 공개, nvidia/cuda:12.8.1-runtime 기반) |
-| `previs-prep:dev` | `docker/dockerfile` | 59.1GB | 사내 개발용 (jinhasong/previs:1.0 상속, 미배포) |
+| 이미지 | dockerfile | 크기 | 용도 | 배포 |
+|--------|-----------|------|------|------|
+| **`jinhasong/previs-prep:2.0`** | `docker/dockerfile.slim` | **13.1GB** | **배포·인도용** (nvidia/cuda:12.8.1-runtime 기반) | Docker Hub |
+| `previs-prep-validate:2.0` | `docker/dockerfile.validate` | +1.6GB | USD 산출물 **검증 전용** (bpy 추가) | **미배포** |
+| `previs-prep:dev` | `docker/dockerfile` | 59.1GB | 사내 개발용 (jinhasong/previs:1.0 상속) | 미배포 |
+
+> 검증 이미지를 분리한 이유는 용량이 아니라 **라이선스**다. `bpy` 는 GPL-3.0 이라
+> 인도 이미지에 넣으면 GPL 바이너리 재배포가 된다(Omniverse Kit 을 뺀 이유와 동일).
+> Blender 의 *산출물 데이터* 는 GPL 대상이 아니므로 USD 산출물 인도에는 영향이 없다.
 
 > **2.0** = 포인트클라우드(pc10k) + 문장 생성·검수(caption) 모듈을 모두 포함한 버전.
 
@@ -216,13 +221,41 @@ python -m usd.convert --input /data/meshes/ --out /data/usd/ --workers 8 \
 기록하고, 면이 없는 포인트클라우드 GLB 는 `UsdGeomPoints` 로 변환한다.
 엔진은 usd-core(Pixar OpenUSD, Apache-2.0)라 **별도 컨테이너·NGC 계정이 필요 없다.**
 
-산출물은 **Blender 실임포트로 검증**한다 — USD 자체 API 로는 정상으로 보이는 결함
-(텍스처 중복, 색 소실)이 잡힌다. 상세·수치는 [usd/SPEC.md](usd/SPEC.md) §5.1.
+#### 산출물 검증 (별도 이미지)
+
+USD 자체 API 로는 정상으로 보이는 결함(텍스처 중복, 색 소실)이 **Blender 실임포트**에서 잡힌다.
+실제로 이 검증으로 결함 4건을 발견했다 — 상세·수치는 [usd/SPEC.md](usd/SPEC.md) §5.1.
+
 ```bash
-python -m usd.validate_blender --glb_dir /data/meshes --usd_dir /data/usd --n 20
+# 1) 검증 이미지 빌드 — 인도 이미지 위에 bpy 만 얹는다 (레지스트리에 올리지 않음)
+docker build -f docker/dockerfile.validate -t previs-prep-validate:2.0 .
+
+#    CUDA 이미지에서 처음부터 쌓으려면
+docker build -f docker/dockerfile.validate \
+    --build-arg BASE_IMAGE=nvidia/cuda:12.8.1-runtime-ubuntu22.04 \
+    -t previs-prep-validate:2.0 .
+
+# 2) 검증 실행 — 원본 GLB 와 USD 산출물을 대조
+docker run --rm -v /data:/data previs-prep-validate:2.0 \
+    python -m usd.validate_blender --glb_dir /data/meshes --usd_dir /data/usd \
+        --n 20 --out /data/usd_validate.jsonl
 ```
-> ⚠️ 검증 도구는 `bpy`(GPL-3.0)를 쓰므로 **인도 이미지에 포함하지 않는다.**
-> USD 산출물 자체는 GPL 무관이다.
+
+판정 기준은 **원본 유형에 따라 다르다** — 텍스처 원본은 이미지 연결을, 상수색 원본은
+색값 근사를 본다. "연결 유무"로만 보면 상수색이 정답인 객체를 실패로 오판한다.
+
+| 옵션 | 설명 |
+|------|------|
+| `--n` | 표본 개수 (`0` = 전수) |
+| `--convert_missing` | USD 가 없으면 즉석 변환 후 검사 |
+| `--out` | 결과 jsonl |
+
+> **Blender 4.1.1 이상 필요** — 3.0.x 는 임포트 단계에서 UsdUVTexture 를 만들지 않아
+> 정상 파일을 실패로 오판한다(도구가 실행을 차단한다). 4.x/5.x 는 임포트는 정상이나
+> 렌더 평가에서 USD 머티리얼이 누락되는 회귀가 있어, **렌더 기반 대조가 필요하면
+> Blender 3.6 계열(Python 3.10)로 별도 구성**해야 한다. 본 도구는 렌더를 쓰지 않는다.
+>
+> ⚠️ 이 이미지는 **인도물이 아니다.** `bpy`(GPL-3.0) 때문에 레지스트리에 올리지 않는다.
 
 ### 9. 개발용 컨테이너 (사내)
 

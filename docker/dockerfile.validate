@@ -1,0 +1,64 @@
+# USD 산출물 검증 전용 이미지 — **인도물 아님, 레지스트리에 올리지 않는다**
+#
+# `bpy`(Blender Python API)는 GPL-3.0 이다. 인도 이미지(previs-prep:2.0)는
+# Apache/BSD/MIT 계열로만 유지해야 하므로(계약 조건) 검증 도구를 분리한다.
+# Blender 의 *산출물 데이터* 는 GPL 대상이 아니므로 USD 산출물 인도에는 영향 없다.
+#
+# 빌드 — 베이스는 둘 다 지원한다:
+#   # (권장) 인도 이미지 위에 얹기 — usd 모듈·usd-core·trimesh 가 이미 있어 bpy 만 추가
+#   docker build -f docker/dockerfile.validate -t previs-prep-validate:2.0 .
+#   # CUDA 이미지에서 처음부터
+#   docker build -f docker/dockerfile.validate \
+#       --build-arg BASE_IMAGE=nvidia/cuda:12.8.1-runtime-ubuntu22.04 \
+#       -t previs-prep-validate:2.0 .
+#
+# 실행:
+#   docker run --rm -v /data:/data previs-prep-validate:2.0 \
+#       python -m usd.validate_blender --glb_dir /data/meshes --usd_dir /data/usd --n 20
+#
+# 검사 범위: **임포트 레벨만**. 렌더 기반 대조는 Blender 3.6 계열(Python 3.10)이
+# 필요한데 bpy 3.6 은 3.11 에 설치되지 않는다 → 필요해지면 별도 이미지로 만들 것.
+ARG BASE_IMAGE=jinhasong/previs-prep:2.0
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# bpy 는 헤드리스로 써도 X11/wayland/EGL 공유 라이브러리를 링크 타임에 요구한다.
+# 아래 목록은 실측으로 확정한 것 — 빠지면 import 단계에서
+# "libX11.so.6 / libxkbcommon.so.0 cannot open shared object file" 로 실패한다.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libsm6 libice6 \
+        libxkbcommon0 libwayland-client0 libwayland-cursor0 libwayland-egl1 \
+        libdbus-1-3 libegl1 libgl1 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 베이스가 인도 이미지가 아니면(예: 순수 CUDA) python/venv 를 갖춰준다.
+COPY docker/requirements-usd.txt /tmp/requirements-usd.txt
+RUN if ! command -v pip >/dev/null 2>&1; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            software-properties-common ca-certificates gnupg curl && \
+        add-apt-repository -y ppa:deadsnakes/ppa && apt-get update && \
+        apt-get install -y --no-install-recommends python3.11 python3.11-venv && \
+        python3.11 -m venv /opt/venv && rm -rf /var/lib/apt/lists/* ; \
+    fi
+ENV PATH=/opt/venv/bin:$PATH
+RUN pip install --no-cache-dir -r /tmp/requirements-usd.txt
+
+# bpy 4.1+ 필요 — 3.0.x 는 임포트에서 UsdUVTexture 를 만들지 않아 정상 파일을 오판한다.
+# (Python 3.11 에는 bpy 4.x/5.x 만 설치된다)
+RUN pip install --no-cache-dir "bpy>=4.1"
+
+# 검증 도구와 변환 모듈 (베이스에 이미 있으면 덮어써 최신으로 맞춘다)
+COPY usd /opt/previs-prep/usd
+ENV PYTHONPATH=/opt/previs-prep
+
+# 빌드 시 자체 점검 — 여기서 실패하면 이미지를 만들지 않는다
+RUN python -c "\
+import bpy, sys; \
+from pxr import Usd; \
+v = bpy.app.version; \
+print('bpy', bpy.app.version_string, '| usd-core', '.'.join(map(str, Usd.GetVersion()))); \
+sys.exit(0 if v >= (3, 6, 0) else 1)"
+
+WORKDIR /workspace
+CMD ["/bin/bash"]
